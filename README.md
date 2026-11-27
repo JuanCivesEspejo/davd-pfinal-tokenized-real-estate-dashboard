@@ -1,35 +1,35 @@
-# Reental - DAVD Proyecto Final
+# Reental — mercado secundario inmobiliario
 
-Proyecto para analizar las previsiones y los resultados publicados de Reental, estudiar su mercado secundario en Polygon y evaluar modelos de predicción de rentabilidad.
+Proyecto para estudiar las compraventas de tokens inmobiliarios de Reental en Polygon y preparar un modelo que estime el precio ejecutado por token.
 
-Actualmente está implementada la obtención y limpieza del CSV. Polygon, ML, API, dashboard y Render se desarrollarán en los siguientes pasos. El código permanece local; no se ha publicado en GitHub.
+Está integrado el tratamiento de datos: descarga y limpieza del CSV, validación de compraventas, caché de respuestas RPC, reanudación y cruce de ventas con proyectos. La captura local contiene **131 proyectos, 130 contratos válidos y 100 ventas verificadas de 48 proyectos**. El modelo, la API, el dashboard y Render siguen pendientes.
 
 ## Estructura
 
 ```text
-DAVD Proyecto Final/
-├── src/
-│   ├── etl.py             # Descarga, lectura, normalización y controles
-│   ├── polygon/           # Reservado para operaciones y precios
-│   ├── ml/                # Reservado para entrenamiento e inferencia
-│   ├── api/               # Reservado para la API
-│   └── dashboard/         # Reservado para la interfaz y los gráficos
-├── data/
-│   ├── raw/               # CSV original
-│   └── processed/         # Proyectos limpios y revisiones
-├── models/                # Reservado para modelos entrenados
-├── assets/                # Reservado para estilos e imágenes
-├── notebooks/             # Reservado para cuadernos del repositorio
-├── docs/                  # Reservado para propuesta y presentación
-├── tests/                 # Reservado para pruebas del proyecto
-├── requirements.txt       # Dependencias del script
-├── requirements-dev.txt   # Añade herramientas para notebooks
-└── .gitignore
+src/
+├── etl.py                 # Punto de entrada y limpieza del CSV
+├── polygon/
+│   ├── __init__.py
+│   └── etl.py             # Extracción y validación de compraventas
+├── ml/                    # Reservado
+├── api/                   # Reservado
+└── dashboard/             # Reservado
+data/
+├── raw/
+│   ├── proyectos_reental.csv
+│   └── polygon/rpc/       # Respuestas originales por consulta y nodo
+└── processed/
+    ├── proyectos_catalogo.csv
+    └── polygon/dataset_precios/
+tests/
+├── test_etl.py
+└── fixtures/compraventa_control.json
 ```
 
-Las carpetas reservadas contienen únicamente `.gitkeep`. La estructura conserva `src/etl.py`, siguiendo la separación entre tratamiento de datos y aplicación del material de despliegue de la asignatura.
+El notebook didáctico permanece en la carpeta V2. El código integrado trabaja con los archivos de este proyecto.
 
-## Preparar el entorno
+## Entorno
 
 Desde la carpeta de la asignatura, en PowerShell:
 
@@ -39,58 +39,77 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 ```
 
-El entorno local ya está creado. Para ejecutar únicamente el script basta instalar `requirements.txt`; las dependencias de desarrollo permiten trabajar también con el notebook.
+El entorno local ya existe. Para ejecutar únicamente el tratamiento de datos basta instalar `requirements.txt`; no se han añadido dependencias.
 
-## Ejecutar la limpieza
+## Ejecutar
 
-Con el CSV ya guardado:
+Solo el catálogo, usando el CSV local:
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.etl
 ```
 
-Para actualizar primero los datos públicos:
+Catálogo y compraventas, usando los datos y la caché locales:
 
 ```powershell
-.\.venv\Scripts\python.exe -m src.etl --download
+.\.venv\Scripts\python.exe -m src.etl --polygon
 ```
 
-Para indicar otro fichero o carpeta de salida:
+Este es el comando para reproducir la captura actual de 100 ventas. Si falta una respuesta RPC, muestra un error; para obtener consultas nuevas hay que añadir `--online`.
+
+Para descargar el CSV público y permitir consultas RPC faltantes:
 
 ```powershell
-.\.venv\Scripts\python.exe -m src.etl --input "ruta\proyectos_reental.csv" --output "data\processed"
+.\.venv\Scripts\python.exe -m src.etl --download --polygon --online
 ```
 
-La descarga localiza el enlace CSV en `https://track-record.reental.co/`. El script no consulta fichas de inmuebles ni documentos PDF. Sin `--download` trabaja con el archivo local; si falta, indica cómo obtenerlo.
+La descarga localiza el enlace CSV en [el track record de Reental](https://track-record.reental.co/). No se consultan fichas de inmuebles ni documentos PDF.
 
-El flujo es: **descargar o leer CSV → localizar cabecera → seleccionar variables → convertir tipos → comprobar calidad y contratos → exportar**.
+Se mantienen `--input` y `--output` para indicar otro CSV o carpeta de resultados. La extracción admite `--target-sales`, `--from-block`, `--to-block` y `--max-windows`. Los valores predeterminados son 100 ventas, bloques 60.000.000–97.870.204 y hasta 200 ventanas de 30.000 bloques por ejecución. El límite superior es fijo para reproducir la captura; no representa automáticamente el bloque actual. Un objetivo mayor depende del volumen disponible y de los límites de búsqueda. Las ventas existentes se conservan.
 
-## Resultados
+## Procesamiento y resultados
 
-Se generan cuatro archivos en `data/processed/`:
+El flujo es: **CSV público → selección y conversión de variables → controles de calidad → contratos → eventos de mercado → recibos, bloques y decimales → compraventas verificadas → cruce con proyectos**.
 
-- `proyectos_catalogo.csv`: todos los proyectos, con las 18 variables del paso 2 y el importe correspondiente a su moneda.
-- `calidad_catalogo.csv`: tipos, ausentes y conversiones no válidas por columna.
-- `incidencias_catalogo.csv`: proyectos señalados por los controles y el motivo.
-- `contratos_polygon.csv`: contratos con formato válido y sin duplicados, preparados para su posterior consulta.
+El catálogo conserva fechas, importes, tasas y valores ausentes. Las rentabilidades se expresan como fracciones: `0.12` representa `12 %`. Las incidencias se señalan sin eliminar proyectos. Se generan:
 
-Las rentabilidades se guardan como fracciones: `0.12` representa `12 %`. Los ausentes permanecen ausentes y las incidencias se señalan sin eliminar proyectos. La variable `rent_anual_real` conserva el significado de rentabilidad anualizada real publicada por Reental; no es una TIR reconstruida a partir de flujos fechados.
+- `proyectos_catalogo.csv`: 131 proyectos y 19 columnas.
+- `calidad_catalogo.csv`: tipos, ausentes y conversiones fallidas.
+- `incidencias_catalogo.csv`: proyectos que requieren revisión.
+- `contratos_polygon.csv`: 130 contratos con formato válido y sin duplicados.
 
-Los datos originales, resultados, modelos y el entorno local quedan excluidos mediante `.gitignore`. Una futura copia del repositorio podrá obtener el CSV con `--download`.
+Las salidas del mercado están en `data/processed/polygon/dataset_precios/`:
 
-## Relación con el notebook
+| Archivo | Contenido de la captura actual |
+| --- | --- |
+| `ventas_verificadas.csv` | 100 compraventas, 25 columnas; objetivo: precio por token. |
+| `ventas_proyectos.csv` | Las mismas 100 ventas con el catálogo asociado, 42 columnas. |
+| `revision_operaciones.csv` | 104 operaciones revisadas; cuatro quedan sin precio. |
+| `candidatos.csv` | 106 eventos únicos: 104 revisados, un control separado y uno pendiente. |
+| `cobertura.csv` | 52 ventanas consultadas; se conservan sus límites y errores. |
+| `resumen_proyectos.csv` | Conteos y fechas de los 48 proyectos con ventas verificadas. |
+| `estado_reanudacion.json` | Revisiones terminadas, versión de reglas y firma del catálogo. |
+| `consultas_usadas.json` | Nombres de las respuestas utilizadas, relativos a `data/raw/polygon/rpc/`. |
+| `alcance.json` | Cobertura, objetivo, conteos y límites del dataset. |
 
-El cuaderno didáctico se mantiene en `../DAF proyecto final V2/00_notebook_vacio.ipynb`. El script integra su descarga del CSV, las conversiones del paso 2 y la limpieza de todo el catálogo, evitando repetir el procesamiento de la muestra de cinco proyectos.
+Los candidatos se deduplican por red, transacción e índice del evento. El precio exige un cruce de órdenes del mercado observado, dos transferencias recíprocas, un proyecto del catálogo, cantidades positivas y un pago coincidente con el cruce. Se consultan los decimales del bloque correspondiente. Los casos ambiguos quedan sin precio. El gas POL se conserva separado.
 
-Se ha retirado la exploración de fichas. En el notebook quedan los pasos 1, 2 y 3: descarga, limpieza de la muestra y limpieza completa, respectivamente.
+Las respuestas y el estado se escriben primero en archivos temporales. Las consultas completadas se reutilizan y se aplican pausas y hasta tres intentos a las nuevas solicitudes. Si cambia el catálogo o la versión de reglas, el estado requiere revisión antes de reutilizarse. Se usa Tenderly para eventos históricos y dRPC para recibos, bloques y decimales.
 
-## Próximos pasos
+## Verificación
 
-1. Obtener una operación de Polygon vinculada a un contrato del CSV.
-2. Ampliar el historial, clasificar operaciones y calcular precios cuando exista una contraprestación identificable.
-3. Unir proyectos y operaciones; analizar precios, volumen y actividad.
-4. Preparar el dataset de ML, comparar referencias, modelos de regresión y un posible ensamble; evaluar sin información futura.
-5. Implementar backend, API y dashboard.
-6. Preparar Render y completar documentación y presentación.
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
 
-La primera variable objetivo de ML será `rent_anual_real`, utilizando información disponible antes del resultado. Las características de los proyectos procederán del CSV. Las variables de Polygon solo se incorporarán a las predicciones cuando sean anteriores a su fecha de corte.
+Las pruebas comprueban una venta pública conocida, pagos incoherentes, recibos discordantes y la ausencia de consultas de red por defecto. Con la captura local también verifican la equivalencia de las 100 ventas y su cruce con proyectos. Esta última prueba se omite si no están los datos completos. El flujo integrado se ha ejecutado con HTTP bloqueado.
+
+## Alcance y próximos pasos
+
+La muestra cubre un mercado, un contrato de pago y compraventas simples. Las 52 ventanas representan 1.270.000 bloques distintos; el censo sigue siendo parcial. La venta de control de 112 USDT0/token se verifica aparte y no aumenta el dataset.
+
+El precio se denomina en unidades del contrato USDT/USDT0 por token. USDT0 es su etiqueta actual; no se convierte a EUR. El cruce con el catálogo usa su captura actual: campos como el estado o los resultados de cierre no acreditan información conocida antes de cada venta y todavía no forman una matriz X para ML. El experimento anterior de rentabilidad publicada queda en el notebook como antecedente.
+
+Queda ampliar y comprobar el volumen disponible hacia la meta de 5.000–10.000 ventas, preparar variables anteriores a cada operación y la separación temporal, entrenar y evaluar modelos, y construir API, dashboard y despliegue en Render.
+
+Los datos completos, resultados, modelos y `.venv` quedan excluidos mediante `.gitignore`. La pequeña captura pública de control en `tests/fixtures/` permite comprobar las reglas sin descargar el histórico completo.

@@ -1,4 +1,4 @@
-"""Descarga, limpieza y revisión del CSV público de Reental."""
+"""Limpieza del catálogo de Reental e integración de compraventas de Polygon."""
 
 import argparse
 import csv
@@ -170,7 +170,15 @@ def main():
     parser.add_argument("--download", action="store_true", help="Actualizar el CSV desde el track record público.")
     parser.add_argument("--input", type=Path, default=RAIZ / "data/raw/proyectos_reental.csv", help="CSV original.")
     parser.add_argument("--output", type=Path, default=RAIZ / "data/processed", help="Carpeta de resultados.")
+    parser.add_argument("--polygon", action="store_true", help="Integrar también las compraventas verificadas.")
+    parser.add_argument("--online", action="store_true", help="Permitir consultas RPC faltantes; requiere --polygon.")
+    parser.add_argument("--target-sales", type=int, default=100, help="Objetivo de ventas verificadas, conservando las existentes.")
+    parser.add_argument("--from-block", type=int, default=60_000_000, help="Límite inferior de búsqueda en Polygon.")
+    parser.add_argument("--to-block", type=int, default=97_870_204, help="Bloque superior fijo para reproducir la captura.")
+    parser.add_argument("--max-windows", type=int, default=200, help="Máximo de ventanas de 30.000 bloques por ejecución.")
     args = parser.parse_args()
+    if args.online and not args.polygon:
+        parser.error("--online requiere --polygon.")
     if args.download:
         print("Fichero público:", descargar_csv(args.input))
     if not args.input.is_file():
@@ -189,6 +197,15 @@ def main():
     print("Resultados guardados en:", args.output.resolve())
     for nombre, tabla in archivos.items():
         print(f"  {nombre}: {len(tabla)} filas")
+    if args.polygon:
+        from .polygon.etl import preparar_precios
+
+        ventas = preparar_precios(args.output / "contratos_polygon.csv", args.output / "proyectos_catalogo.csv",
+            args.output / "polygon/dataset_precios", RAIZ / "data/raw/polygon/rpc", online=args.online,
+            objetivo=args.target_sales, desde=args.from_block, hasta=args.to_block, max_ventanas=args.max_windows)
+        print("Compraventas verificadas:", len(ventas))
+        print("Proyectos con ventas:", ventas["id_proyecto"].nunique())
+        print("Dataset:", (args.output / "polygon/dataset_precios/ventas_verificadas.csv").resolve())
 
 
 if __name__ == "__main__":
